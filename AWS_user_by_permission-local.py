@@ -1,6 +1,5 @@
 import argparse
 import sys
-import boto3
 import json
 import datetime
 import re
@@ -65,17 +64,18 @@ def get_permissions_from_policy_doc(policy_doc):
     doc_permissions = []
     policy_doc_statements = policy_doc.get("Statement", [])
     for statement in policy_doc_statements:
-        statement_effect = statement.get("Effect", "Allow")
-        if statement_effect == "deny":
-            continue
+        if type(statement) != str:
+            statement_effect = statement.get("Effect", "Allow")
+            if statement_effect == "deny":
+                continue
 
-        statement_resources = statement.get("Resource", [])
-        statement_actions = statement.get("Action", [])
-        if statement_resources == "*" or "*" in statement_resources:
-            if statement_actions == "*" or "*" in statement_actions:
-                doc_permissions.append("*:*")
+            statement_resources = statement.get("Resource", [])
+            statement_actions = statement.get("Action", [])
+            if statement_resources == "*" or "*" in statement_resources:
+                if statement_actions == "*" or "*" in statement_actions:
+                    doc_permissions.append("*:*")
 
-        doc_permissions += statement_actions
+            doc_permissions += statement_actions
     return doc_permissions
 
 
@@ -154,17 +154,10 @@ def get_verbose_service_name(prefix):
 
 
 # GetAccountAuthorizationDetails
-def main(service, profile, output):
-    session = boto3.Session(profile_name=profile)
-    client = session.client("iam")
-    if service == "all":
-        auth_document = client.get_account_authorization_details()
-        write_results_to_file(auth_document)
-        return
-
-    auth_document = client.get_account_authorization_details(
-        Filter=["User", "Role", "Group", "LocalManagedPolicy", "AWSManagedPolicy"]
-    )
+def main(service, filename, output):
+    with open(filename,"r") as f:
+        doc = f.read()
+    auth_document = json.loads(doc)
 
     user_list = get_users_with_service_permissions(auth_document, service)
     result = {
@@ -187,14 +180,6 @@ if __name__ == "__main__":
         help="Service namespace of the AWS service. (e.g. iam, ec2, sqs, sns, s3, etc.)")
 
     parser.add_argument(
-        '--profile',
-        '-p',
-        type=str,
-        action="store",
-        default="default",
-        help="Name of the credential profile in '~/.aws/credentials' (default: default)")
-
-    parser.add_argument(
         '--output',
         '-o',
         type=str,
@@ -202,8 +187,15 @@ if __name__ == "__main__":
         default="result.json",
         help="Path and filename of the output. Must be a .json file (default: result.json)")
 
+    parser.add_argument(
+        '--filename',
+        type=str,
+        action="store",
+        help="json output from iam get-account-authorization-details")
+
     arguments = parser.parse_args()
     service = arguments.service
-    profile = arguments.profile
     output = arguments.output
-    main(service, profile, output)
+    filename = arguments.filename
+
+    main(service, filename, output)
